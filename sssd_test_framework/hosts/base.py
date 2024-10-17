@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from typing import Any
 
 import ldap
@@ -264,3 +265,36 @@ class BaseLinuxHost(MultihostHost[SSSDMultihostDomain]):
         if not self._os_release:
             self._distro_information()
         return self._distro_minor
+
+    def get_package_version(self, package: str = "sssd", raise_on_error: bool = True) -> tuple:
+        """
+        Parse package version and return it as a tuple:
+         major, minor, patch, release
+        :param package: package name
+        :param raise_on_error: raise exeption when package is missing
+        :return: major, minor, patch, release
+        :rtype: tuple
+        :raises OSError: If package is missing or version could not be parsed.
+        """
+        rpm = self.conn.run("test -f /usr/bin/rpm", raise_on_error=False)
+        dpkg = self.conn.run("test -f /usr/bin/dpkg-query", raise_on_error=False)
+        if rpm.rc == 0:
+            ver = self.conn.run(f'rpm -q {package} --queryformat "%{{VERSION}}-%{{RELEASE}}"').stdout
+        elif dpkg.rc != 0:
+            ver = self.conn.run(f"dpkg-query -f '${{Version}}' -W {package}").stdout
+        else:
+            if raise_on_error:
+                raise OSError(f"Package {package} not found!")
+            return 0, 0, 0, "unknown"
+
+        v_match = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)[.-~](.*)", ver, re.IGNORECASE)
+        if v_match is None:
+            if raise_on_error:
+                raise OSError(f"Package {package} version could not be parsed!")
+            return 0, 0, 0, "unknown"
+        major = int(v_match.group(1))
+        minor = int(v_match.group(2))
+        patch = int(v_match.group(3))
+        release = v_match.group(4)
+
+        return major, minor, patch, release
