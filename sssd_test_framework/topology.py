@@ -39,6 +39,15 @@ class KnownTopology(KnownTopologyBase):
         def test_ldap(client: Client, ldap: LDAP):
             assert True
     """
+    BareClient = SSSDTopologyMark(
+        name="bare_client",
+        topology=Topology(TopologyDomain("sssd", client=1)),
+        controller=ClientTopologyController(),
+        fixtures=dict(client="sssd.client[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.BareClient
+    """
 
     Client = SSSDTopologyMark(
         name="client",
@@ -61,6 +70,19 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.LDAP
+    """
+
+    BareLDAP = SSSDTopologyMark(
+        name="bare_ldap",
+        topology=Topology(TopologyDomain("sssd", client=1, ldap=1)),
+        controller=LDAPTopologyController(),
+        domains=dict(test="sssd.ldap[0]"),
+        fixtures=dict(
+            client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]"
+        ),
+    )
+    """
+    .. topology-mark:: KnownTopology.BareLDAP
     """
 
     IPA = SSSDTopologyMark(
@@ -135,7 +157,7 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
             assert True
     """
 
-    AnyProvider = [KnownTopology.AD, KnownTopology.IPA, KnownTopology.LDAP, KnownTopology.Samba]
+    AnyProvider = [KnownTopology.AD, KnownTopology.BareLDAP, KnownTopology.IPA, KnownTopology.LDAP, KnownTopology.Samba]
     """
     .. topology-mark:: KnownTopologyGroup.AnyProvider
     """
