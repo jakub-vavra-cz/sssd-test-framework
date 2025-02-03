@@ -42,6 +42,16 @@ class KnownTopology(KnownTopologyBase):
 
     Client = SSSDTopologyMark(
         name="client",
+        topology=Topology(TopologyDomain("sssd", client=1)),
+        controller=ClientTopologyController(),
+        fixtures=dict(client="sssd.client[0]"),
+    )
+    """
+    .. topology-mark:: KnownTopology.Client
+    """
+
+    Client_KDC = SSSDTopologyMark(
+        name="client_kdc",
         topology=Topology(TopologyDomain("sssd", client=1, kdc=1)),
         controller=ClientTopologyController(),
         fixtures=dict(client="sssd.client[0]", kdc="sssd.kdc[0]"),
@@ -49,6 +59,7 @@ class KnownTopology(KnownTopologyBase):
     """
     .. topology-mark:: KnownTopology.Client
     """
+
 
     LDAP = SSSDTopologyMark(
         name="ldap",
@@ -61,6 +72,32 @@ class KnownTopology(KnownTopologyBase):
     )
     """
     .. topology-mark:: KnownTopology.LDAP
+    """
+
+    LDAP_KDC = SSSDTopologyMark(
+        name="ldap_kdc",
+        topology=Topology(TopologyDomain("sssd", client=1, ldap=1, kdc=1)),
+        controller=LDAPTopologyController(),
+        domains=dict(test="sssd.ldap[0]"),
+        fixtures=dict(
+            client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]", kdc="sssd.kdc[0]"
+        ),
+    )
+    """
+    .. topology-mark:: KnownTopology.LDAP_KDC
+    """
+
+    LDAP_KDC_NFS = SSSDTopologyMark(
+        name="ldap_kdc_nfs",
+        topology=Topology(TopologyDomain("sssd", client=1, ldap=1, nfs=1, kdc=1)),
+        controller=LDAPTopologyController(),
+        domains=dict(test="sssd.ldap[0]"),
+        fixtures=dict(
+            client="sssd.client[0]", ldap="sssd.ldap[0]", provider="sssd.ldap[0]", nfs="sssd.nfs[0]", kdc="sssd.kdc[0]"
+        ),
+    )
+    """
+    .. topology-mark:: KnownTopology.LDAP_KDC_NFS
     """
 
     IPA = SSSDTopologyMark(
@@ -138,6 +175,11 @@ class KnownTopologyGroup(KnownTopologyGroupBase):
     AnyProvider = [KnownTopology.AD, KnownTopology.IPA, KnownTopology.LDAP, KnownTopology.Samba]
     """
     .. topology-mark:: KnownTopologyGroup.AnyProvider
+    """
+
+    AnyProviderKDC = [KnownTopology.AD, KnownTopology.IPA, KnownTopology.LDAP_KDC, KnownTopology.Samba]
+    """
+    .. topology-mark:: KnownTopologyGroup.AnyProviderKDC
     """
 
     AnyAD = [KnownTopology.AD, KnownTopology.Samba]
