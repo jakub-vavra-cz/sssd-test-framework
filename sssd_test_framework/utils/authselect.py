@@ -32,6 +32,7 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
         """
         super().__init__(host)
         self.__backup: str | None = None
+        self.bootc = 0 == self.host.conn.exec(["test", "-f", "/usr/bin/bootc"], raise_on_error=False).rc
 
     def teardown(self):
         """
@@ -59,7 +60,8 @@ class AuthselectUtils(MultihostUtility[MultihostHost]):
         if self.__backup is None:
             self.__backup = "multihost.backup"
             backup = [f"--backup={self.__backup}"]
-
+        if self.bootc:
+            features = list(set(features.append("with-altfiles")))
         self.host.conn.exec(["authselect", "select", profile, *features, "--force", *backup])
 
     def current(self) -> str:
