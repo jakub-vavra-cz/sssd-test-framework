@@ -97,7 +97,13 @@ class IPATopologyController(ProvisionedBackupTopologyController):
         client.fs.backup("/var/lib/ipa-client")
 
         # Join ipa domain
-        client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
+        result = client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw, raise_on_error=False)
+        if result.rc != 0:
+            if "Already joined to this domain" in result.stderr:
+                self.logger.info(f"Client {client.hostname} is already joined to {ipa.domain}")
+            else:
+                self.logger.error(f"Failed to join AD domain: {result.stderr}")
+                raise Exception(f"Failed to join AD domain: {result.stderr}")
 
         # Backup so we can restore to this state after each test
         super().topology_setup()
@@ -121,7 +127,13 @@ class ADTopologyController(ProvisionedBackupTopologyController):
         client.fs.rm("/etc/krb5.keytab")
 
         # Join AD domain
-        client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw)
+        result = client.conn.exec(["realm", "join", provider.domain], input=provider.adminpw, raise_on_error=False)
+        if result.rc != 0:
+            if "Already joined to this domain" in result.stderr:
+                self.logger.info(f"Client {client.hostname} is already joined to {provider.domain}")
+            else:
+                self.logger.error(f"Failed to join AD domain: {result.stderr}")
+                raise Exception(f"Failed to join AD domain: {result.stderr}")
 
         # Backup so we can restore to this state after each test
         super().topology_setup()
@@ -167,7 +179,13 @@ class IPATrustADTopologyController(ProvisionedBackupTopologyController):
             client.fs.backup("/var/lib/ipa-client")
 
             # Join IPA domain)
-            client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw)
+            result = client.conn.exec(["realm", "join", ipa.domain], input=ipa.adminpw, raise_on_error=False)
+            if result.rc != 0:
+                if "Already joined to this domain" in result.stderr:
+                    self.logger.info(f"Client {client.hostname} is already joined to {ipa.domain}")
+                else:
+                    self.logger.error(f"Failed to join AD domain: {result.stderr}")
+                    raise Exception(f"Failed to join AD domain: {result.stderr}")
 
         # Backup so we can restore to this state after each test
         super().topology_setup()
