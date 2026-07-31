@@ -1270,15 +1270,65 @@ class ADGroup(ADObject, GenericGroup):
         """
         Add multiple group members.
 
+        Same-domain members use ``Add-ADGroupMember``. Cross-domain Universal
+        members are written with ``DirectoryEntry`` LDAP modify (legacy
+        ``ad_group_member_add`` style) and retried for GC visibility — PowerShell
+        ``Add-ADGroupMember`` often fails with LDAP referrals for foreign DNs.
+
         :param members: List of users or groups to add as members.
         :type members: list[GroupMemberField]
         :return: Self.
         :rtype: ADGroup
         """
-        self.role.host.conn.run(f"""
-            Import-Module ActiveDirectory
-            Add-ADGroupMember -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """)
+        naming_context = self.role.host.naming_context.lower()
+        same_domain: list[str] = []
+        cross_domain: list[str] = []
+        for member in members:
+            dn = self.__member_dn(member)
+            if self.__member_naming_context(member).lower() == naming_context:
+                same_domain.append(dn)
+            else:
+                cross_domain.append(dn)
+
+        if same_domain:
+            members_ps = ",".join(f'"{dn}"' for dn in same_domain)
+            self.role.host.conn.run(f"""
+                Import-Module ActiveDirectory
+                Add-ADGroupMember -Identity '{self.dn}' -Members {members_ps}
+                """)
+
+        if cross_domain:
+            # Write the member DN attribute directly (legacy ldapmodify style).
+            # DirectoryEntry.Invoke('Add', "LDAP://dn") resolves the object on this
+            # DC first and fails for tree-domain DNs with 0x80072030.
+            member_list = ",".join(f"'{dn}'" for dn in cross_domain)
+            self.role.host.conn.run(f"""
+                $ErrorActionPreference = 'Stop'
+                foreach ($m in @({member_list})) {{
+                    $added = $false
+                    $last = $null
+                    for ($i = 0; $i -lt 20; $i++) {{
+                        try {{
+                            $group = New-Object System.DirectoryServices.DirectoryEntry('LDAP://{self.dn}')
+                            [void]$group.Properties['member'].Add($m)
+                            $group.CommitChanges()
+                            $group.Dispose()
+                            $added = $true
+                            break
+                        }} catch {{
+                            $last = $_
+                            if ("$last" -match 'already a member of the group|ATTRIBUTE_OR_VALUE_EXISTS') {{
+                                $added = $true
+                                break
+                            }}
+                            Start-Sleep -Seconds 15
+                        }}
+                    }}
+                    if (-not $added) {{
+                        throw "Failed to add member $m to '{self.dn}': $last"
+                    }}
+                }}
+                """)
         return self
 
     def remove_member(self, member: GroupMemberField) -> ADGroup:
@@ -1301,10 +1351,11 @@ class ADGroup(ADObject, GenericGroup):
         :return: Self.
         :rtype: ADGroup
         """
+        members_ps = ",".join(f'"{self.__member_dn(x)}"' for x in members)
         self.role.host.conn.run(f"""
             Import-Module ActiveDirectory
-            Remove-ADGroupMember -Confirm:$False -Identity '{self.dn}' -Members {self.__get_members(members)}
-        """)
+            Remove-ADGroupMember -Confirm:$False -Identity '{self.dn}' -Members {members_ps}
+            """)
         return self
 
     def __member_dn(self, member: GroupMemberField) -> str:
@@ -1314,8 +1365,13 @@ class ADGroup(ADObject, GenericGroup):
             return member
         return member.name
 
-    def __get_members(self, members: list[GroupMemberField]) -> str:
-        return ",".join([f'"{self.__member_dn(x)}"' for x in members])
+    def __member_naming_context(self, member: GroupMemberField) -> str:
+        """Domain NC of ``member`` (not a parent-domain suffix match)."""
+        if isinstance(member, ADObject):
+            return member.role.host.naming_context
+        dn = self.__member_dn(member)
+        dc_parts = [part for part in dn.split(",") if part.lower().startswith("dc=")]
+        return ",".join(dc_parts) if dc_parts else dn
 
 
 class ADNetgroup(ADObject, GenericNetgroup):
