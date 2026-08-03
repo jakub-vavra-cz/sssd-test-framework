@@ -1271,9 +1271,10 @@ class ADGroup(ADObject, GenericGroup):
         Add multiple group members.
 
         Same-domain members use ``Add-ADGroupMember``. Cross-domain Universal
-        members are written with ``DirectoryEntry`` LDAP modify (legacy
-        ``ad_group_member_add`` style) and retried for GC visibility — PowerShell
-        ``Add-ADGroupMember`` often fails with LDAP referrals for foreign DNs.
+        members use ``DirectoryEntry.Invoke('Add')`` with a server-qualified
+        LDAP URL (``LDAP://dc.other.domain/CN=...``) and retries — bare DNs
+        fail with ``0x80072030`` for tree domains when the local DC cannot
+        resolve the object.
 
         :param members: List of users or groups to add as members.
         :type members: list[GroupMemberField]
@@ -1282,13 +1283,18 @@ class ADGroup(ADObject, GenericGroup):
         """
         naming_context = self.role.host.naming_context.lower()
         same_domain: list[str] = []
+        # Cross-domain entries are LDAP URLs. Prefer server-qualified URLs
+        # (LDAP://dc.other.domain/CN=...) so the local DC can resolve tree-
+        # domain objects; bare LDAP://DN fails with 0x80072030 without that.
         cross_domain: list[str] = []
         for member in members:
             dn = self.__member_dn(member)
             if self.__member_naming_context(member).lower() == naming_context:
                 same_domain.append(dn)
+            elif isinstance(member, ADObject):
+                cross_domain.append(f"LDAP://{member.role.host.hostname}/{dn}")
             else:
-                cross_domain.append(dn)
+                cross_domain.append(f"LDAP://{dn}")
 
         if same_domain:
             members_ps = ",".join(f'"{dn}"' for dn in same_domain)
@@ -1298,10 +1304,7 @@ class ADGroup(ADObject, GenericGroup):
                 """)
 
         if cross_domain:
-            # Write the member DN attribute directly (legacy ldapmodify style).
-            # DirectoryEntry.Invoke('Add', "LDAP://dn") resolves the object on this
-            # DC first and fails for tree-domain DNs with 0x80072030.
-            member_list = ",".join(f"'{dn}'" for dn in cross_domain)
+            member_list = ",".join(f"'{url}'" for url in cross_domain)
             self.role.host.conn.run(f"""
                 $ErrorActionPreference = 'Stop'
                 foreach ($m in @({member_list})) {{
@@ -1310,7 +1313,7 @@ class ADGroup(ADObject, GenericGroup):
                     for ($i = 0; $i -lt 20; $i++) {{
                         try {{
                             $group = New-Object System.DirectoryServices.DirectoryEntry('LDAP://{self.dn}')
-                            [void]$group.Properties['member'].Add($m)
+                            $group.Invoke('Add', $m)
                             $group.CommitChanges()
                             $group.Dispose()
                             $added = $true
