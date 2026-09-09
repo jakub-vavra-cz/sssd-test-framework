@@ -343,7 +343,9 @@ class LocalUser(GenericUser):
         passwd = f" && passwd --stdin '{self._name}'" if password else ""
         self.util.logger.info(f'Creating local user "{self._name}" on {self.util.host.hostname}')
         self.util.host.conn.run(
-            self.util.cli.command("useradd", args) + passwd, input=password, log_level=ProcessLogLevel.Error
+            self.util.cli.command("useradd", args) + passwd,
+            input=password,
+            log_level=ProcessLogLevel.Error,
         )
 
         self.util._users.append(self._name)
@@ -394,7 +396,9 @@ class LocalUser(GenericUser):
         passwd = f" && passwd --stdin '{self._name}'" if password else ""
         self.util.logger.info(f'Modifying local user "{self._name}" on {self.util.host.hostname}')
         self.util.host.conn.run(
-            self.util.cli.command("usermod", args) + passwd, input=password, log_level=ProcessLogLevel.Error
+            self.util.cli.command("usermod", args) + passwd,
+            input=password,
+            log_level=ProcessLogLevel.Error,
         )
 
         return self
@@ -482,7 +486,9 @@ class LocalUser(GenericUser):
         _ = opattrs
         self.util.logger.info(f'Fetching local user "{self._name}" on {self.util.host.hostname}')
         result = self.util.host.conn.exec(
-            ["getent", "passwd", self._name], raise_on_error=False, log_level=ProcessLogLevel.Error
+            ["getent", "passwd", self._name],
+            raise_on_error=False,
+            log_level=ProcessLogLevel.Error,
         )
         if result.rc != 0:
             return {}
@@ -627,7 +633,9 @@ class LocalGroup(GenericGroup):
         _ = opattrs
         self.util.logger.info(f'Fetching local group "{self._name}" on {self.util.host.hostname}')
         result = self.util.host.conn.exec(
-            ["getent", "group", self._name], raise_on_error=False, log_level=ProcessLogLevel.Silent
+            ["getent", "group", self._name],
+            raise_on_error=False,
+            log_level=ProcessLogLevel.Silent,
         )
         if result.rc != 0:
             return {}
@@ -655,6 +663,33 @@ class LocalGroup(GenericGroup):
         """
         return self.add_members([member])
 
+    def _group_member_add_cmd(self, member: GroupMemberField) -> str:
+        """Build shell to add one member; groupmems was removed from recent Fedora."""
+        name = self._member_principal_name(member)
+        group = self._name
+        if isinstance(member, LocalGroup):
+            return (
+                f"current=$(getent group '{group}' | cut -d: -f4); "
+                f'case ",$current," in *,"{name}",*) ;; '
+                f"*) "
+                f'if [ -n "$current" ]; then gpasswd -M "$current,{name}" \'{group}\'; '
+                f"else gpasswd -M '{name}' '{group}'; fi ;; "
+                f"esac"
+            )
+        return f"gpasswd -a '{name}' '{group}'"
+
+    def _group_member_remove_cmd(self, member: GroupMemberField) -> str:
+        """Build shell to remove one member; groupmems was removed from recent Fedora."""
+        name = self._member_principal_name(member)
+        group = self._name
+        if isinstance(member, LocalGroup):
+            return (
+                f"current=$(getent group '{group}' | cut -d: -f4); "
+                f"new=$(printf '%s\\n' \"${{current//,/ }}\" | grep -vxF '{name}' | paste -sd,); "
+                f"gpasswd -M \"$new\" '{group}'"
+            )
+        return f"gpasswd -d '{name}' '{group}'"
+
     def add_members(self, members: list[GroupMemberField]) -> LocalGroup:
         """
         Add multiple group members.
@@ -669,9 +704,7 @@ class LocalGroup(GenericGroup):
         if not members:
             return self
 
-        cmd = "\n".join(
-            [f"groupmems --group '{self._name}' --add '{self._member_principal_name(x)}'" for x in members]
-        )
+        cmd = "\n".join([self._group_member_add_cmd(x) for x in members])
         self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self
@@ -701,9 +734,7 @@ class LocalGroup(GenericGroup):
         if not members:
             return self
 
-        cmd = "\n".join(
-            [f"groupmems --group '{self._name}' --delete '{self._member_principal_name(x)}'" for x in members]
-        )
+        cmd = "\n".join([self._group_member_remove_cmd(x) for x in members])
         self.util.host.conn.run("set -ex\n" + cmd, log_level=ProcessLogLevel.Error)
 
         return self
@@ -846,7 +877,9 @@ class LocalNetgroup(GenericNetgroup):
         _ = opattrs
         self.util.logger.info(f'Fetching local netgroup "{self._name}" on {self.util.host.hostname}')
         result = self.util.host.conn.exec(
-            ["getent", "netgroup", self._name], raise_on_error=False, log_level=ProcessLogLevel.Silent
+            ["getent", "netgroup", self._name],
+            raise_on_error=False,
+            log_level=ProcessLogLevel.Silent,
         )
         if result.rc != 0:
             return {}
